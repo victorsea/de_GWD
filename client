@@ -17,7 +17,7 @@ branch="main"
 
 
 installCMD=`cat << EOF
-bash <(wget --no-check-certificate -qO- https://ghproxy.net/https://raw.githubusercontent.com/jacyl4/de_GWD/main/client)
+bash <(wget --no-check-certificate -qO- https://ghproxy.net/https://raw.githubusercontent.com/victorsea/de_GWD/main/client)
 EOF
 `
 
