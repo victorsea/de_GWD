@@ -17,7 +17,7 @@ branch="main"
 
 
 installCMD=`cat << EOF
-bash <(wget --no-check-certificate -qO- https://ghproxy.net/https://raw.githubusercontent.com/victorsea/de_GWD/main/client)
+bash <(wget --no-check-certificate -qO- https://ghproxy.net/https://raw.githubusercontent.com/jacyl4/de_GWD/main/client)
 EOF
 `
 
@@ -49,7 +49,7 @@ unset aptPKG
 [[ -z $(dpkg -l | awk '{print$2}' | grep '^curl$') ]] && aptPKG+=(curl)
 [[ -z $(dpkg -l | awk '{print$2}' | grep '^git$') ]] && aptPKG+=(git)
 [[ -z $(dpkg -l | awk '{print$2}' | grep '^locales$') ]] && aptPKG+=(locales)
-[[ -z $(dpkg -l | awk '{print$2}' | grep '^netcat-openbsd$') ]] && aptPKG+=(netcat-openbsd)
+[[ -z $(dpkg -l | awk '{print$2}' | grep '^netcat$') ]] && aptPKG+=(netcat)
 [[ -z $(dpkg -l | awk '{print$2}' | grep '^lsof$') ]] && aptPKG+=(lsof)
 [[ -z $(dpkg -l | awk '{print$2}' | grep '^dnsutils$') ]] && aptPKG+=(dnsutils)
 [[ -z $(dpkg -l | awk '{print$2}' | grep '^net-tools$') ]] && aptPKG+=(net-tools)
@@ -62,7 +62,7 @@ unset aptPKG
 [[ -z $(dpkg -l | awk '{print$2}' | grep '^jq$') ]] && aptPKG+=(jq)
 [[ -z $(dpkg -l | awk '{print$2}' | grep '^bc$') ]] && aptPKG+=(bc)
 [[ -z $(dpkg -l | awk '{print$2}' | grep '^moreutils$') ]] && aptPKG+=(moreutils)
-[[ -z $(dpkg -l | awk '{print$2}' | grep '^rng-tools-debian$') ]] && aptPKG+=(rng-tools-debian)
+[[ -z $(dpkg -l | awk '{print$2}' | grep '^rng-tools$') ]] && aptPKG+=(rng-tools)
 [[ -z $(dpkg -l | awk '{print$2}' | grep '^chrony$') ]] && aptPKG+=(chrony)
 [[ -z $(dpkg -l | awk '{print$2}' | grep '^irqbalance$') ]] && [[ $(nproc --all) -gt 1 ]] && aptPKG+=(irqbalance)
 [[ -n $aptPKG ]] && apt update && apt install $(echo ${aptPKG[@]})
@@ -1342,7 +1342,8 @@ interface_FT=(${interface_FT[@]} $(echo $interface_all | xargs -n1 | awk -F'/' '
 interface_FT=(${interface_FT[@]} $(echo $interface_all | xargs -n1 | awk -F'/' '{print$NF}' | grep '^wg'))
 interface_FT=(${interface_FT[@]} $(echo $interface_all | xargs -n1 | awk -F'/' '{print$NF}' | grep '^ifb4'))
 ethernet_FT=$(echo ${interface_FT[@]} | sed -e 's/[ ]/, /g')
-echo "define flowtable_eth = { $ethernet_FT }" >/opt/de_GWD/nftables/flowtable.eth
+echo "#!/usr/sbin/nft -f" >/opt/de_GWD/nftables/flowtable.eth
+echo "define flowtable_eth = { $ethernet_FT }" >>/opt/de_GWD/nftables/flowtable.eth
 EOF
 chmod +x /opt/de_GWD/nftables/flowtable_eth.sh
 
@@ -1353,8 +1354,7 @@ include "/opt/de_GWD/nftables/flowtable.eth"
 
 table inet filter {
         flowtable Acceleration {
-                hook ingress priority -200;
-                devices = \$flowtable_eth
+                hook ingress priority 0; devices = \$flowtable_eth;
         }
         chain INPUT {
                 type filter hook input priority 0; policy accept;
@@ -1371,8 +1371,9 @@ table inet filter {
         }
         chain FORWARD {
                 type filter hook forward priority 0; policy accept;
-                counter packets 0 bytes 0
                 ip protocol { tcp, udp } flow offload @Acceleration
+                counter packets 0 bytes 0
+
                 tcp flags & (syn|rst) == syn counter tcp option maxseg size set 1440
                 # WireGuard traffic
                 iifname "ifb4wg0" accept
@@ -1563,7 +1564,8 @@ RemainAfterExit=yes
 StandardInput=null
 ProtectSystem=full
 ProtectHome=true
-ExecStart=/bin/bash -c '/opt/de_GWD/nftables/flowtable_eth.sh' ; /usr/sbin/nft -f /opt/de_GWD/nftables/nftables ; $(which ip) route add local default dev lo scope host table 220 ; $(which ip) rule add fwmark 0x9 table 220 prio 100
+ExecStartPre=/bin/bash -c '/opt/de_GWD/nftables/flowtable_eth.sh'
+ExecStart=/usr/sbin/nft -f /opt/de_GWD/nftables/nftables ; $(which ip) route add local default dev lo scope host table 220 ; $(which ip) rule add fwmark 0x9 table 220 prio 100
 ExecStop=/usr/sbin/nft flush ruleset ; $(which ip) rule del table 220 ; $(which ip) route del local default dev lo table 220
 
 [Install]
@@ -1581,17 +1583,10 @@ echo -e "${WHITE}[ ${GREEN}✓ ${WHITE}]\c" && echo -e "\t${WHITE}Deploy nftable
 updateAPT(){
 echo -e "${WHITE}[...]\c" && echo -e "\t${WHITE}Debian Updated${cRES}\r\c"
 cat << EOF >/etc/apt/sources.list
-deb http://deb.debian.org/debian bookworm main non-free-firmware
-deb-src http://deb.debian.org/debian bookworm main non-free-firmware
-
-deb http://deb.debian.org/debian-security/ bookworm-security main non-free-firmware
-deb-src http://deb.debian.org/debian-security/ bookworm-security main non-free-firmware
-
-deb http://deb.debian.org/debian bookworm-updates main non-free-firmware
-deb-src http://deb.debian.org/debian bookworm-updates main non-free-firmware
-
-deb http://deb.debian.org/debian bookworm-backports main non-free-firmware
-deb-src http://deb.debian.org/debian bookworm-backports main non-free-firmware
+deb http://cloudfront.debian.net/debian bullseye main contrib non-free
+deb http://cloudfront.debian.net/debian bullseye-updates main contrib non-free
+deb http://cloudfront.debian.net/debian bullseye-backports main contrib non-free
+deb http://cloudfront.debian.net/debian-security bullseye-security main contrib non-free
 EOF
 
 echo "deb https://packages.sury.org/php/ $(cat /etc/os-release | grep VERSION= | cut -d'(' -f2 | cut -d')' -f1) main" >/etc/apt/sources.list.d/php.list
@@ -1616,8 +1611,9 @@ pkgDEP1
 
 pkgDEP2
 
->/etc/ld.so.preload
-sed -i "/$(uname -m)-linux-gnu/d" /etc/ld.so.conf
+cat << EOF >/etc/ld.so.preload
+/usr/lib/$(uname -m)-linux-gnu/libjemalloc.so.2
+EOF
 ldconfig
 
 
@@ -1655,9 +1651,9 @@ allow_url_fopen         = On
 allow_url_include       = Off
 variables_order         = "GPCS"
 allow_webdav_methods    = On
-memory_limit            = 128M
-max_execution_time      = 1200
-max_input_time          = 30
+memory_limit            = 512M
+max_execution_time      = 300
+max_input_time          = 300
 max_input_vars          = 5000
 output_buffering        = Off
 output_handler          = ""
@@ -2026,7 +2022,7 @@ QUERY_LOGGING=true
 BLOCKING_ENABLED=true
 DNS_FQDN_REQUIRED=true
 DNS_BOGUS_PRIV=true
-DNSMASQ_LISTENING=all
+DNSMASQ_LISTENING=single
 DNSSEC=false
 REV_SERVER=false
 PIHOLE_DNS_1=127.0.0.1#5341
@@ -2224,13 +2220,13 @@ echo madvise >/sys/kernel/mm/transparent_hugepage/enabled
 
 $(which ip) route show table local | grep ' dev lo ' | while read line; do
 line=\$(echo \$line | awk -F' mtu ' '{print\$1}')
-$(which ip) route change \$line mtu 9088 initcwnd 1000 initrwnd 1000 fastopen_no_cookie 1 congctl lock cubic
+$(which ip) route change \$line mtu 65536 initcwnd 1000 initrwnd 1000 fastopen_no_cookie 1 congctl lock cubic
 done
 
 NIC_local=\$($(which ip) route | grep -v 'scope link' | awk -F' dev ' '{print\$2}' | cut -d' ' -f1)
 $(which ip) route show table local | grep " dev \$NIC_local " | while read line; do
 line=\$(echo \$line | awk -F' mtu ' '{print\$1}')
-$(which ip) route change \$line mtu 1500 initcwnd 32 initrwnd 39 fastopen_no_cookie 1 congctl lock $(sysctl net.ipv4.tcp_congestion_control | awk -F' = ' '{print$2}')
+$(which ip) route change \$line mtu 1500 advmss 1440 initcwnd 32 initrwnd 39 fastopen_no_cookie 1 congctl lock $(sysctl net.ipv4.tcp_congestion_control | awk -F' = ' '{print$2}')
 done
 
 $(which ip) route | grep " dev \$NIC_local " | while read line; do
@@ -2246,7 +2242,7 @@ $(which ip) link set \$ifb down
 $(which ip) link delete \$ifb
 done
 
-$(which ip) link set lo qlen 4096 mtu 9088
+$(which ip) link set lo qlen 4096 mtu 65536
 $(which tc) qdisc del dev lo root >/dev/null 2>&1
 $(which tc) qdisc add dev lo root cake unlimited rtt 1us diffserv4 triple-isolate nonat nowash no-split-gso no-ack-filter raw egress
 
@@ -2255,7 +2251,7 @@ $(which tc) qdisc del dev lo ingress >/dev/null 2>&1
 $(which tc) qdisc add dev lo handle ffff: ingress
 $(which tc) qdisc del dev ifb4lo root >/dev/null 2>&1
 $(which tc) qdisc add dev ifb4lo root cake unlimited rtt 1us diffserv4 triple-isolate nonat nowash no-split-gso no-ack-filter raw ingress
-$(which ip) link set ifb4lo qlen 4096 mtu 9088
+$(which ip) link set ifb4lo qlen 4096 mtu 65536
 $(which ip) link set ifb4lo up
 $(which tc) filter add dev lo parent ffff: matchall action mirred egress redirect dev ifb4lo
 
@@ -2488,14 +2484,13 @@ apt full-upgrade -y && apt autoremove --purge -y && apt clean -y && apt autoclea
 fi
 
 cat << EOF >/etc/apt/sources.list
-deb http://$chnAPTsource/debian bookworm main contrib non-free non-free-firmware
-deb http://$chnAPTsource/debian bookworm-updates main contrib non-free non-free-firmware
-deb http://$chnAPTsource/debian bookworm-backports main contrib non-free non-free-firmware
-deb http://$chnAPTsource/debian-security bookworm-security main contrib non-free non-free-firmware
+deb http://$chnAPTsource/debian bullseye main contrib non-free
+deb http://$chnAPTsource/debian bullseye-updates main contrib non-free
+deb http://$chnAPTsource/debian bullseye-backports main contrib non-free
+deb http://$chnAPTsource/debian-security bullseye-security main contrib non-free
 EOF
 
-sed -i "s/ buster / bookworm /g" /etc/apt/sources.list.d/* >/dev/null 2>&1
-sed -i "s/ bullseye / bookworm /g" /etc/apt/sources.list.d/* >/dev/null 2>&1
+sed -i "s/ buster / bullseye /g" /etc/apt/sources.list.d/* >/dev/null 2>&1
 apt update --fix-missing && apt upgrade --allow-downgrades -y
 apt full-upgrade -y && apt autoremove --purge -y && apt clean -y && apt autoclean -y
 
@@ -2699,7 +2694,7 @@ fi
 
 echo -e "${WHITE}---------------------- ${cRES}"
 
-if [[ $(du -sk /opt/de_GWD/.repo/geosite.dat 2>/dev/null | awk '{print$1}') -gt 3500 ]]; then
+if [[ $(du -sk /opt/de_GWD/.repo/geosite.dat 2>/dev/null | awk '{print$1}') -gt 4400 ]]; then
   echo -e "${WHITE} GeoSite        \c" && echo -e "${WHITE}[ ${GREEN}✓ ${WHITE}]${cRES}"
 else
   echo -e "${WHITE} GeoSite        \c" && echo -e "${WHITE}[ ${RED}✕ ${WHITE}]${cRES}"
